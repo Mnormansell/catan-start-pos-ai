@@ -146,7 +146,7 @@ class Board(object):
                 return False
             
             # Cannot place if a neighbor node is occupied
-            for node in self.graph.get_node_neighbors(coord):
+            for node in self.graph.get_node_neighbors(coord, self.pieces):
                 if (1, node) in self.pieces.keys():
                     return False
 

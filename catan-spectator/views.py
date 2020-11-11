@@ -10,7 +10,7 @@ from catan import states
 from catan.board import PortType, HexNumber, Terrain
 from catan.game import Player
 from catan.pieces import PieceType, Piece
-from catan.agents import RandomAgent
+from catan.agents import RandomAgent, NaiveAgent
 import tkinterutils
 import views_trading
 import argparse
@@ -642,6 +642,8 @@ class SetupGameToolbarFrame(tkinter.Frame):
         def get_agent(var, player):
             if var == 'Random Agent':
                 return RandomAgent(self.game, player)
+            if var == 'Naive Agent':
+                return NaiveAgent(self.game, player)
             return None
 
         players = list()
@@ -681,7 +683,7 @@ class StartGamePlayerOrderFrame(tkinter.Frame):
             entry.grid(row=int(val)-1, column=2)
         
         # NOTE: This code is hardcoded for 4 players, likely should have some change for 3 players
-        agents = ['No Agent', 'Random Agent']
+        agents = ['No Agent', 'Random Agent', 'Naive Agent']
         self.player_agent_vars = [(tkinter.Spinbox(self, values=agents), tkinter.StringVar()) for i in range(num_players)]
         for i in range(num_players):
             entry, var = self.player_agent_vars[i]
