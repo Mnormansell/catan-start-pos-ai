@@ -13,8 +13,8 @@ class Heuristic(object):
     An abstract class for node heuristics to inherit from
     """
 
-    def __init__(self, player, graph):
-        self.player = player
+    def __init__(self, players, graph):
+        self.players = players
         self.graph = graph
     
     # Evaluate a node for a specific turn
@@ -89,69 +89,105 @@ class Agent(object):
             )
         )
 
+        # Create new copies of pieces and legal placements with that node claimed for the player
+        def copy_state_without_node(pieces, legal_placements, node, player):
+            pieces_ = copy.copy(pieces)
+            legal_placements_ = copy.copy(legal_placements)
+
+            pieces_[(1, node)] = Piece(PieceType.settlement, player)
+            legal_placements_.remove(node)
+            for neighbor in graph.get_node_neighbors(node, pieces_):
+                legal_placements_.discard(neighbor)
+            
+            return pieces_, legal_placements_
+
         # TODO: Implement pruning, limiting number of nodes?
-        def tree_search(cur_turn, end_turn, pieces, legal_placements):
+        def tree_search(cur_turn, end_turn, pieces, legal_placements, alphas):
             tree_search.counter[cur_turn] += 1
             # If last turn we evaluate at our second level
             if cur_turn == end_turn:
-                return max(
+                best_placement_hval, best_placement_coords = max(
                     map(
                         lambda node: (heuristic.evaluate_node(node, pieces, cur_turn), node),
                         legal_placements
                     )
-                )                
+                )
+                ret = [(-1, None) for i in range(len(players))]
+                ret[players.index(snake[cur_turn])] = (best_placement_hval, best_placement_coords)
+                return ret
+            
+            players_index = players.index(snake[cur_turn])
             
             # First turn - Evaluate each node appropriately
             if cur_turn < len(players):
                 best_settlement_hval = -1
                 best_settlement_coords = -1
+                ret = [(-1, None) for i in range(len(players))] # Default initialize to lameo
 
+                # print(legal_placements)
                 for node in legal_placements:
+                    first_placement_hval = heuristic.evaluate_node(node, pieces, cur_turn) 
+                    
                     # Create new copies of pieces and legal placements, and claim that node and recurse     
-                    pieces_ = copy.copy(pieces)
-                    legal_placements_ = copy.copy(legal_placements)
+                    pieces_, legal_placements_ = copy_state_without_node(pieces, legal_placements, node, players[players_index])
 
-                    pieces_[(1, node)] = Piece(PieceType.settlement, players[cur_turn])
-                    legal_placements_.remove(node)
-                    for neighbor in graph.get_node_neighbors(node, pieces_):
-                        legal_placements_.discard(neighbor)
+                    # We prune if best second settlement placement yields a worse combination than one we've already calculated 
+                    # This follows with the assumption that heuristics for settlements can only get worse with other player choices
+                    second_placement_hval = max(
+                        map(
+                            lambda n: heuristic.evaluate_node(n, pieces, cur_turn),
+                            legal_placements
+                        )
+                    )
+                    if first_placement_hval + second_placement_hval <= alphas[players_index]:
+                        continue
 
-                    hval, _ = tree_search(cur_turn+1, end_turn, pieces_, legal_placements_)
+                    # Calculate lower leaves of the tree
+                    if cur_turn == start_turn:
+                        alphas_ = [-float("inf") for i in range(len(players))]
+                        alphas_[players_index] = alphas[players_index]
+                        ret_ = tree_search(cur_turn+1, end_turn, pieces_, legal_placements_, alphas_)
+                    else:
+                        ret_ = tree_search(cur_turn+1, end_turn, pieces_, legal_placements_, alphas)
+                    second_level_hval, _ = ret_[players_index] # Get second level hval
 
-                    # If first turn for our player, we need to calcualte the heuristic of the first node as well
-                    # TODO: if we do pruning, we may need ot pass this an an argument
-                    if players[cur_turn] == self.player:
-                        hval += heuristic.evaluate_node(node, pieces, cur_turn) 
-
+                    # Update alpha (if it wasn't pruned)
+                    hval = first_placement_hval + second_level_hval
+                    
+                    if hval > alphas[players_index]:
+                        alphas[players_index] = hval 
+                    # else:
+                    #     print("Not greater")
+                    
                     # Find max correctly
                     if hval > best_settlement_hval:
                         best_settlement_hval = hval
                         best_settlement_coords = node
+                        ret = ret_
                 
-                return best_settlement_hval, best_settlement_coords
+                return ret
             # Second turn - Pick best option
             else:
-                _, best_placement_coords = max(
+                best_placement_hval, best_placement_coords = max(
                     map(
                         lambda node: (heuristic.evaluate_node(node, pieces, cur_turn), node),
                         legal_placements
                     )
                 )    
                 
-                pieces_ = copy.copy(pieces)
-                legal_placements_ = copy.copy(legal_placements)
+                pieces_, legal_placements_ = copy_state_without_node(pieces, legal_placements, best_placement_coords, players[players_index])
 
-                pieces_[(1, best_placement_coords)] = Piece(PieceType.settlement, snake[cur_turn])
-                legal_placements_.remove(best_placement_coords)
-                for neighbor in graph.get_node_neighbors(best_placement_coords, pieces_):
-                    legal_placements_.discard(neighbor)
-
-                return tree_search(cur_turn+1, end_turn, pieces_, legal_placements_)
+                ret = tree_search(cur_turn+1, end_turn, pieces_, legal_placements_, alphas)
+                ret[players_index] = (best_placement_hval, best_placement_coords)
+                return ret
         
-        tree_search.counter = {i: 0 for i in range(len(snake))}
-        _, best_placement_coords = tree_search(start_turn, end_turn, pieces, legal_placements)
-        print(tree_search.counter)
 
+        tree_search.counter = {i: 0 for i in range(len(snake))}
+        # Initialize tree search, alphas to negative infinity
+        ret_arr = tree_search(start_turn, end_turn, pieces, legal_placements, [-float("inf") for i in range(len(players))])
+        _, best_placement_coords = ret_arr[players.index(snake[start_turn])]
+        # print(tree_search.counter)
+        
         return best_placement_coords
 
     # BFS to closest desired node / port
@@ -234,7 +270,7 @@ class NaiveAgent(Agent):
                 # Brute force to find best settlement
                 best_settlement = self.calc_best_settlement_placement(
                     gamestate, 
-                    GeneralHeuristic(self.player, gamestate.game.board.graph)
+                    GeneralHeuristic(gamestate.game.players, gamestate.game.board.graph)
                 )
                 gamestate.place_settlement(best_settlement)
 
