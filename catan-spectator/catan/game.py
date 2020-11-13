@@ -209,8 +209,6 @@ class Game(object):
         self.catanlog.log_game_start(self.players, terrain, numbers, self.board.ports)
         self.notify_observers()
 
-        print(self.board.state.pregame)
-
         # # TODO: Expand AI Past pregame?
         if self.state.is_in_pregame() and self.get_cur_player().agent:
             self.get_cur_player().agent.solve(self.state)

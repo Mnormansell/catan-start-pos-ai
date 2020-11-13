@@ -80,6 +80,7 @@ class CatanGraph:
         elif isinstance(node, int):
             return self.nodes[node]
         else:
+            print(node)
             raise Exception("Unknown type passed into get_node()")
 
     def get_edges_of_node(self, node):

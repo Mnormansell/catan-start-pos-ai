@@ -4,6 +4,7 @@ File that stores collection of agents, i.e random agent,
 from catan.states import GameStatePreGamePlacingPiece
 from catan.pieces import Piece, PieceType
 from catan.graph import CatanGraph
+from catan.board import Terrain
 import hexgrid
 import random
 import copy
@@ -17,6 +18,19 @@ class Heuristic(object):
         self.players = players
         self.graph = graph
     
+def number_to_prob(number):
+    """
+    Convert number on tile (2..12) to probability of being rolled
+    """
+    if number is None:
+        return 0
+    
+    if number <= 7: 
+        return (number-1)/36
+    
+    return ((-number % 7) - 1) / 36
+
+
     # Evaluate a node for a specific turn
     def evaluate_node(self, node, turn, pieces):
         """
@@ -37,21 +51,30 @@ class Heuristic(object):
 class GeneralHeuristic(Heuristic):
     # General Evaluation -> just try to get every card with favorable rolls
     def evaluate_node(self, node, pieces, turn):
+        if turn < 2 * len(self.players):
+            player = (self.players + list(reversed(self.players)))[turn]
+        else:
+            player = self.players[turn % len(self.players)]
+
+        resources = {terrain : 0 for terrain in Terrain}
+        tiles = []
         val = 0
+
+        # Calculate what resources player already owns
+        for (piece_type, coord), piece in pieces.items():
+            if piece_type == 1 and piece.owner == player:
+                for tile in self.graph.nodes[coord].tiles:
+                    tiles.append(tile)
+                    resources[tile.terrain] += 1
         for tile in self.graph.nodes[node].tiles:
-            die_roll = tile.number.value
-            if die_roll == 2 or die_roll == 12:
-                val += 1
-            elif die_roll == 3 or die_roll == 11:
-                val += 2
-            elif die_roll == 4 or die_roll == 10:
-                val += 3
-            elif die_roll == 5 or die_roll == 9:
-                val += 4
-            elif die_roll == 6 or die_roll == 8:
-                val += 5
-            elif die_roll == 7:
-                val += 0
+            tiles.append(tile)
+            resources[tile.terrain] += 1
+
+        # Formula IDEA: Weight probability of rolling by number of that resources already owned (larger weight for less resources owned)
+        for tile in tiles:
+            val += (1 / (1 + resources[tile.terrain])) * (number_to_prob(tile.number.value) * 36)
+
+
         return val
 
 class Agent(object):
@@ -104,6 +127,8 @@ class Agent(object):
         # TODO: Implement pruning, limiting number of nodes?
         def tree_search(cur_turn, end_turn, pieces, legal_placements, alphas):
             tree_search.counter[cur_turn] += 1
+            players_index = players.index(snake[cur_turn])
+            
             # If last turn we evaluate at our second level
             if cur_turn == end_turn:
                 best_placement_hval, best_placement_coords = max(
@@ -113,18 +138,16 @@ class Agent(object):
                     )
                 )
                 ret = [(-1, None) for i in range(len(players))]
-                ret[players.index(snake[cur_turn])] = (best_placement_hval, best_placement_coords)
+                ret[players_index] = (best_placement_hval, best_placement_coords)
                 return ret
             
-            players_index = players.index(snake[cur_turn])
             
             # First turn - Evaluate each node appropriately
             if cur_turn < len(players):
                 best_settlement_hval = -1
                 best_settlement_coords = -1
-                ret = [(-1, None) for i in range(len(players))] # Default initialize to lameo
+                ret = [(-1, None) for i in range(len(players))] # Default initialize to 
 
-                # print(legal_placements)
                 for node in legal_placements:
                     first_placement_hval = heuristic.evaluate_node(node, pieces, cur_turn) 
                     
@@ -156,9 +179,7 @@ class Agent(object):
                     
                     if hval > alphas[players_index]:
                         alphas[players_index] = hval 
-                    # else:
-                    #     print("Not greater")
-                    
+
                     # Find max correctly
                     if hval > best_settlement_hval:
                         best_settlement_hval = hval
@@ -186,8 +207,7 @@ class Agent(object):
         # Initialize tree search, alphas to negative infinity
         ret_arr = tree_search(start_turn, end_turn, pieces, legal_placements, [-float("inf") for i in range(len(players))])
         _, best_placement_coords = ret_arr[players.index(snake[start_turn])]
-        # print(tree_search.counter)
-        
+        print(tree_search.counter)
         return best_placement_coords
 
     # BFS to closest desired node / port
@@ -240,17 +260,9 @@ class NaiveAgent(Agent):
         super(NaiveAgent, self).__init__(game, player, tile_cutoff)
 
     def solve(self, gamestate):
-        # # Get turn
-        # if gamestate.game._cur_turn < len(gamestate.game.players):
-        #     print("First Turn")
-        # else:
-        #     print("Second Turn")
-
         if isinstance(gamestate, GameStatePreGamePlacingPiece):
             piece_type = gamestate.piece_type
             piece = Piece(piece_type, self.player)
-
-            print(gamestate.game._cur_turn)
 
             # Randomly choose road from legal placements
             if piece_type == PieceType.road:
