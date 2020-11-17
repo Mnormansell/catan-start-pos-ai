@@ -10,7 +10,7 @@ from catan import states
 from catan.board import PortType, HexNumber, Terrain
 from catan.game import Player
 from catan.pieces import PieceType, Piece
-from catan.agents import RandomAgent, NaiveAgent
+from catan.agents import RandomAgent, NaiveAgent, GeneralHeuristic
 import tkinterutils
 import views_trading
 import argparse
@@ -638,24 +638,45 @@ class SetupGameToolbarFrame(tkinter.Frame):
 
         def get_color(var):
             return var.get().split(' ')[1]
+
+        def get_heuristic(hvar, players, game):
+            eval(hvar.get().replace(" ", ""))([players], game) if heuristic else None
+
         
-        def get_agent(var, player):
-            if var == 'Random Agent':
+        def get_agent(avar, heuristic, player):
+            agent = avar.get()
+
+            if agent == 'Random Agent':
                 return RandomAgent(self.game, player)
-            if var == 'Naive Agent':
-                return NaiveAgent(self.game, player)
+            if agent == 'Naive Agent':
+                return NaiveAgent(self.game, player, heuristic=heuristic)
+            if agent == 'Tree Agent':
+                return NaiveAgent(self.game, player, heuristic=heuristic)
+           
             return None
 
         players = list()
-        for (_, var), (_, evar), (_, avar) in zip(self.start_game_player_order.player_order_vars,
+        for (_, var), (_, evar), (_, avar), (_, hvar) in zip(self.start_game_player_order.player_order_vars,
                                                  self.start_game_player_order.player_entries_vars,
-                                                 self.start_game_player_order.player_agent_vars):
+                                                 self.start_game_player_order.player_agent_vars,
+                                                 self.start_game_player_order.player_heuristic_vars):
             p = Player(int(var.get()),get_name(evar), get_color(evar )) 
-            p.set_agent(get_agent(avar.get(), p)) # Set player's agent
+            p.set_agent(get_agent(avar, hvar, p)) # Set player's agent
             players.append(p)
+        
+        players = list()
+        for (_, var), (_, evar)in zip(self.start_game_player_order.player_order_vars,
+                                                self.start_game_player_order.player_entries_vars):
+            p = Player(int(var.get()),get_name(evar), get_color(evar )) 
+            players.append(p)
+        
+        for p, (_, avar), (_, hvar) in zip(players,
+                                                 self.start_game_player_order.player_agent_vars,
+                                                 self.start_game_player_order.player_heuristic_vars):
+            heuristic = eval(hvar.get().replace(" ", ""))(players, self.game.board.graph)
+            p.set_agent(get_agent(avar, heuristic, p)) # Set player's agent
 
         players.sort(key=lambda p: p.seat)
-
         self.game.start(players)
 
 
@@ -668,7 +689,7 @@ class StartGamePlayerOrderFrame(tkinter.Frame):
 
         num_players = int(kwargs.get('num_players')) or 4
 
-        defaults = ('yurick green', 'josh blue', 'zach orange', 'ross red')[:num_players]
+        defaults = ('matthew green', 'samarth blue', 'chester orange', 'collin red')[:num_players]
         self.player_entries_vars = [(tkinter.Entry(self), tkinter.StringVar()) for i in range(len(defaults))]
         for (entry, var), default in zip(self.player_entries_vars, defaults):
             var.set(default)
@@ -682,14 +703,35 @@ class StartGamePlayerOrderFrame(tkinter.Frame):
             entry.config(textvariable=var)
             entry.grid(row=int(val)-1, column=2)
         
-        # NOTE: This code is hardcoded for 4 players, likely should have some change for 3 players
-        agents = ['No Agent', 'Random Agent', 'Naive Agent']
-        self.player_agent_vars = [(tkinter.Spinbox(self, values=agents), tkinter.StringVar()) for i in range(num_players)]
+        # Iniitalize heuristics but hide them until an agent is selected
+        heuristics = ['General Heuristic']
+        self.player_heuristic_vars = []
         for i in range(num_players):
-            entry, var = self.player_agent_vars[i]
+            var = tkinter.StringVar()
+            var.set(heuristics[0]) # Set to No Agent by deafult
+            menu = tkinter.OptionMenu(self, var, *heuristics)
+            menu.grid(row=i, column=4)
+            menu.grid_remove()
+            self.player_heuristic_vars.append((menu, var))
+        
+        # Need a function to display heurstic choice if agent is suggested
+        def display_heuristic(row):
+            return lambda x: self.player_heuristic_vars[row][0].grid_remove() \
+                if (x == "No Agent" or x == "Random Agent") \
+                else self.player_heuristic_vars[row][0].grid()
+        fncs = [display_heuristic(i) for i in range(num_players)]
+
+        # NOTE: This code is hardcoded for 4 players, likely should have some change for 3 players
+        agents = ['No Agent', 'Random Agent', 'Naive Agent', 'Tree Agent']
+        self.player_agent_vars = []
+        for i in range(num_players):
+            var = tkinter.StringVar()
             var.set(agents[0]) # Set to No Agent by deafult
-            entry.config(textvariable=var)
-            entry.grid(row=i, column=3)
+            menu = tkinter.OptionMenu(self, var, *agents, command=fncs[i])
+            menu.grid(row=i, column=3)
+            self.player_agent_vars.append((menu, var))
+
+
 
 class GameToolbarFrame(tkinter.Frame):
 

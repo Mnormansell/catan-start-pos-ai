@@ -8,6 +8,7 @@ from catan.board import Terrain
 import hexgrid
 import random
 import copy
+from queue import Queue
 
 class Heuristic(object):
     """
@@ -18,18 +19,17 @@ class Heuristic(object):
         self.players = players
         self.graph = graph
     
-def number_to_prob(number):
-    """
-    Convert number on tile (2..12) to probability of being rolled
-    """
-    if number is None:
-        return 0
-    
-    if number <= 7: 
-        return (number-1)/36
-    
-    return ((-number % 7) - 1) / 36
-
+    def number_to_prob(self, number):
+        """
+        Convert number on tile (2..12) to probability of being rolled
+        """
+        if number is None:
+            return 0
+        
+        if number <= 7: 
+            return (number-1)/36
+        
+        return ((-number % 7) - 1) / 36
 
     # Evaluate a node for a specific turn
     def evaluate_node(self, node, turn, pieces):
@@ -50,7 +50,7 @@ def number_to_prob(number):
 
 class GeneralHeuristic(Heuristic):
     # General Evaluation -> just try to get every card with favorable rolls
-    def evaluate_node(self, node, pieces, turn):
+    def evaluate_node(self, node, turn, pieces):
         if turn < 2 * len(self.players):
             player = (self.players + list(reversed(self.players)))[turn]
         else:
@@ -72,7 +72,7 @@ class GeneralHeuristic(Heuristic):
 
         # Formula IDEA: Weight probability of rolling by number of that resources already owned (larger weight for less resources owned)
         for tile in tiles:
-            val += (1 / (1 + resources[tile.terrain])) * (number_to_prob(tile.number.value) * 36)
+            val += (1 / (1 + resources[tile.terrain])) * (self.number_to_prob(tile.number.value) * 36)
 
 
         return val
@@ -84,12 +84,14 @@ class Agent(object):
     member variables:
     game -> Catan game object
     player -> Player that the agent belongs to
+    heuristic -> Heuristic (Eval function) for the agent to use
     tile_cutoff -> Only consider nodes with > this many tiles. Default 1 (no cutoff)
     """
 
-    def __init__(self, game, player, tile_cutoff = 0):
+    def __init__(self, game, player, heuristic = None, tile_cutoff = 0):
         self.game = game
         self.player = player
+        self.heuristic = heuristic
         self.tile_cutoff = tile_cutoff
 
     # Solve at that state
@@ -97,7 +99,7 @@ class Agent(object):
         raise NotImplemented()
 
     # If first turn, recurse till second turn to find best 1st / 2nd settlement combos
-    def calc_best_settlement_placement(self, gamestate, heuristic):
+    def calc_best_settlement_placement(self, gamestate):
         players = gamestate.game.players
         snake = players + list(reversed(players))
         start_turn = gamestate.game._cur_turn
@@ -133,7 +135,7 @@ class Agent(object):
             if cur_turn == end_turn:
                 best_placement_hval, best_placement_coords = max(
                     map(
-                        lambda node: (heuristic.evaluate_node(node, pieces, cur_turn), node),
+                        lambda node: (self.heuristic.evaluate_node(node, cur_turn, pieces), node),
                         legal_placements
                     )
                 )
@@ -149,7 +151,7 @@ class Agent(object):
                 ret = [(-1, None) for i in range(len(players))] # Default initialize to 
 
                 for node in legal_placements:
-                    first_placement_hval = heuristic.evaluate_node(node, pieces, cur_turn) 
+                    first_placement_hval = self.heuristic.evaluate_node(node, cur_turn, pieces) 
                     
                     # Create new copies of pieces and legal placements, and claim that node and recurse     
                     pieces_, legal_placements_ = copy_state_without_node(pieces, legal_placements, node, players[players_index])
@@ -158,11 +160,12 @@ class Agent(object):
                     # This follows with the assumption that heuristics for settlements can only get worse with other player choices
                     second_placement_hval = max(
                         map(
-                            lambda n: heuristic.evaluate_node(n, pieces, cur_turn),
-                            legal_placements
+                            lambda n: self.heuristic.evaluate_node(n, cur_turn, pieces_),
+                            legal_placements_
                         )
                     )
                     if first_placement_hval + second_placement_hval <= alphas[players_index]:
+                        # print(alphas[players_index], first_placement_hval, second_placement_hval)
                         continue
 
                     # Calculate lower leaves of the tree
@@ -191,7 +194,7 @@ class Agent(object):
             else:
                 best_placement_hval, best_placement_coords = max(
                     map(
-                        lambda node: (heuristic.evaluate_node(node, pieces, cur_turn), node),
+                        lambda node: (self.heuristic.evaluate_node(node, cur_turn, pieces), node),
                         legal_placements
                     )
                 )    
@@ -211,7 +214,32 @@ class Agent(object):
         return best_placement_coords
 
     # BFS to closest desired node / port
-    def calc_best_road_placement(self, heuristic):
+    def calc_best_road_placement(self, gamestate):
+
+        if gamestate.is_in_pregame():
+            turn = gamestate.game._cur_turn
+
+            graph = gamestate.game.board.graph
+            pieces = gamestate.game.board.pieces
+            sorted_legal_placements = list(
+                sorted(
+                    graph.get_legal_settlement_placements(pieces),
+                    key = lambda x: self.heuristic.evaluate_node(x, turn, pieces),
+                    reverse = True
+                )
+            )
+
+            path = bfs(
+                gamestate.prev_settlement, 
+                gamestate.game.board, 
+                sorted_legal_placements[:2], 
+                gamestate.game.get_cur_player()
+            )
+
+            if len(path) == 0:
+                raise Exception("No path to goals found!")
+            return path[1][1]
+
         raise NotImplemented()
 
 class RandomAgent(Agent):
@@ -255,9 +283,48 @@ class RandomAgent(Agent):
         return 0
 
 class NaiveAgent(Agent):
-    # Initialize to slightly higher cutoff
-    def __init__(self, game, player, tile_cutoff = 1):
-        super(NaiveAgent, self).__init__(game, player, tile_cutoff)
+    # Initialize to slightly higher cutoff, default to GeneralHeuristic
+    def __init__(self, game, player, heuristic = "GeneralHeuristic", tile_cutoff = 1):
+        super(NaiveAgent, self).__init__(game, player, heuristic, tile_cutoff)
+
+        def calc_best_settlement_placement(self, gamestate):
+            graph = gamestate.game.board.graph
+            pieces = gamestate.game.board.pieces
+            return max( 
+                map(
+                    lambda node: (
+                        self.heuristic.evaluate_node(node, gamestate.game._cur_turn, pieces), 
+                        node
+                    ),
+                    filter(
+                        lambda node: len(graph.nodes[node].tiles) > self.tile_cutoff, 
+                        graph.get_legal_settlement_placements(pieces)
+                    )
+                )
+            )[1]
+
+    def solve(self, gamestate):
+        if isinstance(gamestate, GameStatePreGamePlacingPiece):
+            piece_type = gamestate.piece_type
+            piece = Piece(piece_type, self.player)
+
+            # Choose best available option
+            if piece_type == PieceType.road:
+                best_road = self.calc_best_road_placement(gamestate)
+                # Road will be second item of second item in path
+                gamestate.place_road(best_road)
+            
+            elif piece_type == PieceType.settlement:
+                # Brute force to find best settlement
+                best_settlement = self.calc_best_settlement_placement(gamestate)
+                gamestate.place_settlement(best_settlement)
+
+        return 0
+
+class TreeAgent(Agent):
+    # Initialize to slightly higher cutoff, default to GeneralHeuristic
+    def __init__(self, game, player, heuristic = "GeneralHeuristic", tile_cutoff = 1):
+        super(NaiveAgent, self).__init__(game, player, heuristic, tile_cutoff)
 
     def solve(self, gamestate):
         if isinstance(gamestate, GameStatePreGamePlacingPiece):
@@ -266,24 +333,144 @@ class NaiveAgent(Agent):
 
             # Randomly choose road from legal placements
             if piece_type == PieceType.road:
-                edges = hexgrid.legal_edge_coords()
-                prev_settlement = self.game.state.prev_settlement
-
-                valid_edge_placements = list()
-                for edge in edges:
-                    if prev_settlement in hexgrid.nodes_touching_edge(
-                        edge
-                    ) and gamestate.game.board.can_place_piece(piece, edge):
-                        valid_edge_placements.append(edge)
-
-                gamestate.place_road(random.choice(valid_edge_placements))
+                best_road = self.calc_best_road_placement(gamestate)
+                # Road will be second item of second item in path
+                gamestate.place_road(best_road)
 
             elif piece_type == PieceType.settlement:
                 # Brute force to find best settlement
-                best_settlement = self.calc_best_settlement_placement(
-                    gamestate, 
-                    GeneralHeuristic(gamestate.game.players, gamestate.game.board.graph)
-                )
+                best_settlement = self.calc_best_settlement_placement(gamestate)
                 gamestate.place_settlement(best_settlement)
 
         return 0
+
+
+def bfs(node, board, goals, player=None):
+    """
+    Traverse from node until we reach a goal state "with backtracking"
+
+    @param node: starting node coordinates
+    @param board: Catan board
+    @param goals: list of goal nodes, stop when first is hit
+    @param player: whether to filter results based on legal moves for player
+    returns path (of nodes and edges to goal)
+    """
+    pieces = board.pieces
+    graph = board.graph
+
+    seen = set()
+    backtrack = dict()
+    q = Queue() # Queue stores nodes
+
+    # Initialize with starting node
+    q.put(node)
+    seen.add((1, node))
+    backtrack[(1, node)] = None
+
+    while not q.empty():
+        cur_node = q.get()
+
+        # If a goal, backtrack
+        if cur_node in goals:
+            # Return list
+            path = []
+            # Backtrack to current states "parent"
+
+            # In form (piece_type, coords)
+            parent = backtrack[(1, cur_node)]
+
+            while parent:
+                # Append parent->cur action
+                path.append(parent)
+                # Backtrack from parent state
+                parent = backtrack[parent]
+            # Need to reverse list to put actions in correct order
+            return path[::-1]
+
+        for edge_coords in graph.get_edges_of_node(cur_node):
+            # 3 checks on the edges of the node we are looking at
+            # 1: If we aren't looking to check ownership we loop over that edge's nodes
+            # 2: If the edge is not currently owner (not in the pieces dict)
+            # 3: If the edge is owner by the player we are cheking ownership for 
+            if (0, edge_coords) in seen:
+                continue
+
+            if player is None or pieces.get((0, edge_coords)) is None or pieces[(0, edge_coords)].owner == player:
+                seen.add((0, edge_coords))
+                backtrack[(0, edge_coords)] = (1, cur_node)
+
+                # Get successor node (aka the one out of the two nodes connected to the edge that isn't our initial node)
+                suc_node = list(filter(
+                    lambda x: x != cur_node,
+                    graph.get_nodes_of_edge(edge_coords)
+                ))[0]
+
+                if suc_node in (1, seen):
+                    continue
+
+                # Same cchecks for nodes
+                if player is None or pieces.get((1, suc_node)) is None or pieces[(1, suc_node)].owner == player:
+                    seen.add((1, suc_node))
+                    backtrack[(1, suc_node)] = (0, edge_coords)
+                    q.put(suc_node)
+
+    return []
+
+# def breadthFirstSearch(problem):
+#     """Search the shallowest nodes in the search tree first."""
+#     # Initialize overhead
+#     seen = set()
+#     backtrack = dict() # Dict to build actions to goal, form "Child: (Parent, action: Parent->Child)" 
+#     fringe = util.Queue()
+    
+#     # Prepare for BFS on start node
+#     cur = problem.getStartState()
+#     seen.add(cur)
+#     fringe.push(cur)
+
+#     # Populate backtrack
+#     backtrack[cur] = () # Backtracks to nothing
+
+#     # Iterate until stack is empty
+#     while not fringe.isEmpty():
+#         # Pop most recently seen element
+#         cur = fringe.pop()
+
+#         # If goal state, backtrack to form return state and return
+#         if problem.isGoalState(cur):
+#             # Return list
+#             actions = []
+#             # Backtrack to current states "parent"
+#             parent = backtrack[cur]
+
+#             while len(parent) != 0:
+#                 # Append parent->cur action
+#                 actions.append(parent[1])
+
+#                 # Backtrack from parent state
+#                 parent = backtrack[parent[0]]
+            
+#             # Need to reverse list to put actions in correct order
+#             return actions[::-1]
+
+
+#         # If not goal state, get Successors and DFS more
+#         successors = problem.getSuccessors(cur)
+
+#         for successor in successors:
+#             # Successor has form [State, Action, Weight]
+#             state = successor[0]
+
+#             # If not, setup backtracking and append
+#             if state not in seen:
+#                 # Mark as seen
+#                 seen.add(state)
+
+#                 # Add backtracking element, (parent, action parent->child)
+#                 backtrack[state] = (cur, successor[1])
+                
+#                 # Push onto BFS fringe
+#                 fringe.push(state)
+
+#     # Hit this if no goal state?
+#     util.raiseNotDefined()

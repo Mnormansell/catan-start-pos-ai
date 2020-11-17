@@ -429,10 +429,10 @@ class Game(object):
 
     @classmethod
     def get_debug_players(cls):
-        return [Player(1, 'yurick', 'green'),
-                Player(2, 'josh', 'blue'),
-                Player(3, 'zach', 'orange'),
-                Player(4, 'ross', 'red')]
+        return [Player(1, 'matthew', 'green'),
+                Player(2, 'samarth', 'blue'),
+                Player(3, 'chester', 'orange'),
+                Player(4, 'collin', 'red')]
 
 
 class Player(object):

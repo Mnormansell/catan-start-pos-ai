@@ -80,7 +80,6 @@ class CatanGraph:
         elif isinstance(node, int):
             return self.nodes[node]
         else:
-            print(node)
             raise Exception("Unknown type passed into get_node()")
 
     def get_edges_of_node(self, node):
@@ -113,7 +112,7 @@ class CatanGraph:
         edges = self.get_edges_of_node(node)
 
         neighbors = set()
-        for edge_coords in self.get_edges_of_node(node):
+        for edge_coords in edges:
             # 3 checks on the edges of the node we are looking at
             # 1: If we aren't looking to check ownership we loop over that edge's nodes
             # 2: If the edge is not currently owner (not in the pieces dict)
