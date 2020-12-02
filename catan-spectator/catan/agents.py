@@ -77,6 +77,43 @@ class GeneralHeuristic(Heuristic):
 
         return val
 
+class TestingHeuristic(Heuristic):
+    # General Evaluation -> just try to get every card with favorable rolls
+    def evaluate_node(self, node, turn, pieces):
+        if turn < 2 * len(self.players):
+            player = (self.players + list(reversed(self.players)))[turn]
+        else:
+            player = self.players[turn % len(self.players)]
+
+        weights = {
+            Terrain.wood: 3,            
+            Terrain.brick: 3,
+            Terrain.wheat: 0,
+            Terrain.sheep: 0,
+            Terrain.ore: 0,           
+            Terrain.desert: 0
+        }
+        resources = {terrain : 0 for terrain in Terrain}
+        tiles = []
+        val = 0
+
+        # Calculate what resources player already owns
+        for (piece_type, coord), piece in pieces.items():
+            if piece_type == 1 and piece.owner == player:
+                for tile in self.graph.nodes[coord].tiles:
+                    tiles.append(tile)
+                    resources[tile.terrain] += 1
+        for tile in self.graph.nodes[node].tiles:
+            tiles.append(tile)
+            resources[tile.terrain] += 1
+
+        # Formula IDEA: Weight probability of rolling by number of that resources already owned (larger weight for less resources owned)
+        for tile in tiles:
+            val += (weights[tile.terrain] / (1 + resources[tile.terrain])) * (self.number_to_prob(tile.number.value) * 36)
+
+
+        return val
+
 class Agent(object):
     """
     An abstract class for other agents to inherit from
@@ -287,21 +324,21 @@ class NaiveAgent(Agent):
     def __init__(self, game, player, heuristic = "GeneralHeuristic", tile_cutoff = 1):
         super(NaiveAgent, self).__init__(game, player, heuristic, tile_cutoff)
 
-        def calc_best_settlement_placement(self, gamestate):
-            graph = gamestate.game.board.graph
-            pieces = gamestate.game.board.pieces
-            return max( 
-                map(
-                    lambda node: (
-                        self.heuristic.evaluate_node(node, gamestate.game._cur_turn, pieces), 
-                        node
-                    ),
-                    filter(
-                        lambda node: len(graph.nodes[node].tiles) > self.tile_cutoff, 
-                        graph.get_legal_settlement_placements(pieces)
-                    )
+    def calc_best_settlement_placement(self, gamestate):
+        graph = gamestate.game.board.graph
+        pieces = gamestate.game.board.pieces
+        return max( 
+            map(
+                lambda node: (
+                    self.heuristic.evaluate_node(node, gamestate.game._cur_turn, pieces), 
+                    node
+                ),
+                filter(
+                    lambda node: len(graph.nodes[node].tiles) > self.tile_cutoff, 
+                    graph.get_legal_settlement_placements(pieces)
                 )
-            )[1]
+            )
+        )[1]
 
     def solve(self, gamestate):
         if isinstance(gamestate, GameStatePreGamePlacingPiece):
@@ -324,7 +361,7 @@ class NaiveAgent(Agent):
 class TreeAgent(Agent):
     # Initialize to slightly higher cutoff, default to GeneralHeuristic
     def __init__(self, game, player, heuristic = "GeneralHeuristic", tile_cutoff = 1):
-        super(NaiveAgent, self).__init__(game, player, heuristic, tile_cutoff)
+        super(TreeAgent, self).__init__(game, player, heuristic, tile_cutoff)
 
     def solve(self, gamestate):
         if isinstance(gamestate, GameStatePreGamePlacingPiece):

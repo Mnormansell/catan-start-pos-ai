@@ -10,7 +10,7 @@ from catan import states
 from catan.board import PortType, HexNumber, Terrain
 from catan.game import Player
 from catan.pieces import PieceType, Piece
-from catan.agents import RandomAgent, NaiveAgent, GeneralHeuristic
+from catan.agents import RandomAgent, NaiveAgent, TreeAgent, GeneralHeuristic, TestingHeuristic
 import tkinterutils
 import views_trading
 import argparse
@@ -651,7 +651,7 @@ class SetupGameToolbarFrame(tkinter.Frame):
             if agent == 'Naive Agent':
                 return NaiveAgent(self.game, player, heuristic=heuristic)
             if agent == 'Tree Agent':
-                return NaiveAgent(self.game, player, heuristic=heuristic)
+                return TreeAgent(self.game, player, heuristic=heuristic)
            
             return None
 
@@ -704,7 +704,7 @@ class StartGamePlayerOrderFrame(tkinter.Frame):
             entry.grid(row=int(val)-1, column=2)
         
         # Iniitalize heuristics but hide them until an agent is selected
-        heuristics = ['General Heuristic']
+        heuristics = ['General Heuristic', 'Testing Heuristic']
         self.player_heuristic_vars = []
         for i in range(num_players):
             var = tkinter.StringVar()
