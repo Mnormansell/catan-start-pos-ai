@@ -10,7 +10,7 @@ from catan import states
 from catan.board import PortType, HexNumber, Terrain
 from catan.game import Player
 from catan.pieces import PieceType, Piece
-from catan.agents import RandomAgent, NaiveAgent, TreeAgent, GeneralHeuristic, TestingHeuristic
+from catan.agents import RandomAgent, NaiveAgent, TreeAgent, GeneralHeuristic, TestingHeuristic, RoadBuilderHeuristic
 import tkinterutils
 import views_trading
 import argparse
@@ -704,7 +704,7 @@ class StartGamePlayerOrderFrame(tkinter.Frame):
             entry.grid(row=int(val)-1, column=2)
         
         # Iniitalize heuristics but hide them until an agent is selected
-        heuristics = ['General Heuristic', 'Testing Heuristic']
+        heuristics = ['General Heuristic', 'Testing Heuristic', 'Road Builder Heuristic']
         self.player_heuristic_vars = []
         for i in range(num_players):
             var = tkinter.StringVar()

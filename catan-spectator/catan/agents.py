@@ -86,14 +86,14 @@ class TestingHeuristic(Heuristic):
             player = self.players[turn % len(self.players)]
 
         weights = {
-            Terrain.wood: 3,            
-            Terrain.brick: 3,
-            Terrain.wheat: 0,
-            Terrain.sheep: 0,
-            Terrain.ore: 0,           
+            Terrain.wood: 0,
+            Terrain.brick: 0,
+            Terrain.wheat: 1,
+            Terrain.sheep: 3,
+            Terrain.ore: 3,
             Terrain.desert: 0
         }
-        resources = {terrain : 0 for terrain in Terrain}
+        resources = {terrain: 0 for terrain in Terrain}
         tiles = []
         val = 0
 
@@ -109,10 +109,50 @@ class TestingHeuristic(Heuristic):
 
         # Formula IDEA: Weight probability of rolling by number of that resources already owned (larger weight for less resources owned)
         for tile in tiles:
-            val += (weights[tile.terrain] / (1 + resources[tile.terrain])) * (self.number_to_prob(tile.number.value) * 36)
-
+            val += (weights[tile.terrain] / (1 + resources[tile.terrain])) * (
+                self.number_to_prob(tile.number.value) * 36)
 
         return val
+
+
+class RoadBuilderHeuristic(Heuristic):
+    """
+    Road Builder strategy: maximize yield of wood and brick
+    """
+    def evaluate_node(self, node, turn, pieces):
+        if turn < 2 * len(self.players):
+            player = (self.players + list(reversed(self.players)))[turn]
+        else:
+            player = self.players[turn % len(self.players)]
+
+        weights = {
+            Terrain.wood: 3,
+            Terrain.brick: 3,
+            Terrain.wheat: 0,
+            Terrain.sheep: 0,
+            Terrain.ore: 0,
+            Terrain.desert: 0
+        }
+        resources = {terrain: 0 for terrain in Terrain}
+        tiles = []
+        val = 0
+
+        # Calculate what resources player already owns
+        for (piece_type, coord), piece in pieces.items():
+            if piece_type == 1 and piece.owner == player:
+                for tile in self.graph.nodes[coord].tiles:
+                    tiles.append(tile)
+                    resources[tile.terrain] += 1
+        for tile in self.graph.nodes[node].tiles:
+            tiles.append(tile)
+            resources[tile.terrain] += 1
+
+        for tile in tiles:
+            val += (weights[tile.terrain] / (1 + resources[tile.terrain])) * (
+                self.number_to_prob(tile.number.value) * 36)
+
+        return val
+
 
 class Agent(object):
     """
